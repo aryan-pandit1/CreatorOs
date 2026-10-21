@@ -269,6 +269,13 @@ const signup = asyncHandler(async (req, res, next) => {
         return res.status(400).json({ success: false, message: "Name, email, and password are required" });
     }
 
+    if (typeof password !== "string" || password.length < MIN_PASSWORD_LENGTH) {
+    return res.status(400).json({
+        success: false,
+        message: `Password must be at least ${MIN_PASSWORD_LENGTH} characters`,
+    });
+}
+
     const normalizedName = name.trim();
     const normalizedEmail = email.toLowerCase().trim();
 
