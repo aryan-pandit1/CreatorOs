@@ -47,6 +47,21 @@ describe("Password reset", () => {
     expect(next).not.toHaveBeenCalled();
   });
 
+  it("rejects common reset passwords without consuming the token", async () => {
+    req.body.newPassword = "12345678";
+
+    await resetPassword(req, res, next);
+
+    expect(res.status).toHaveBeenCalledWith(400);
+    expect(res.json).toHaveBeenCalledWith({
+      success: false,
+      message: "Password is too common. Please choose a different password.",
+    });
+    expect(PasswordResetToken.findOneAndUpdate).not.toHaveBeenCalled();
+    expect(User.findById).not.toHaveBeenCalled();
+    expect(next).not.toHaveBeenCalled();
+  });
+
   it("resets the password when the token and new password are valid", async () => {
     const user = {
       email: "user@example.com",

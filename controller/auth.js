@@ -16,6 +16,7 @@ const {
 } = require("../utils/loginAttemptManager");
 const { isEmailTransportConfigured } = require("../utils/email");
 const { verifyTotp } = require("../utils/totp");
+const { isCommonPassword } = require("../utils/commonPasswordChecker");
 
 const CONTRIBUTOR_NAME = "Contributor";
 const ONE_WEEK_MS = 7 * 24 * 60 * 60 * 1000;
@@ -29,6 +30,7 @@ const GENERIC_LOGIN_ERROR = "Invalid email or password";
 const INVALID_2FA_ERROR = "Invalid authenticator code";
 const GOOGLE_AUTH_CANCELLED_ERROR = "Google sign-in was cancelled or could not be completed.";
 const VERIFICATION_UNAVAILABLE_ERROR = "Email verification is temporarily unavailable because email delivery is not configured. Please try again later or contact support.";
+const COMMON_PASSWORD_ERROR = "Password is too common. Please choose a different password.";
 
 async function releaseClaimedResetToken(PasswordResetToken, resetTokenDoc) {
     if (!resetTokenDoc?._id) return;
@@ -257,7 +259,6 @@ function renderLoginError(req, res) {
 }
 
 const signup = asyncHandler(async (req, res, next) => {
-    const User = await getUserModel();
     const { sendVerificationEmail } = require("../utils/email");
 
     const { name, email, password } = req.body || {};
@@ -269,6 +270,17 @@ const signup = asyncHandler(async (req, res, next) => {
         return res.status(400).json({ success: false, message: "Name, email, and password are required" });
     }
 
+    if (isCommonPassword(password)) {
+        const message = COMMON_PASSWORD_ERROR;
+
+        if (wantsHtml(req)) {
+            return res.status(400).render("signup", { error: message });
+        }
+
+        return res.status(400).json({ success: false, message });
+    }
+
+    const User = await getUserModel();
     const normalizedName = name.trim();
     const normalizedEmail = email.toLowerCase().trim();
 
@@ -874,8 +886,6 @@ const requestPasswordReset = asyncHandler(async (req, res) => {
  * Marks token as used to prevent replay attacks.
  */
 const resetPassword = asyncHandler(async (req, res) => {
-    const User = await getUserModel();
-    const PasswordResetToken = require('../model/passwordResetToken');
     const { token, newPassword } = req.body || {};
 
     if (!token || !newPassword) {
@@ -888,6 +898,16 @@ const resetPassword = asyncHandler(async (req, res) => {
             message: `Password must be at least ${MIN_PASSWORD_LENGTH} characters`,
         });
     }
+
+    if (isCommonPassword(newPassword)) {
+        return res.status(400).json({
+            success: false,
+            message: COMMON_PASSWORD_ERROR,
+        });
+    }
+
+    const User = await getUserModel();
+    const PasswordResetToken = require('../model/passwordResetToken');
 
     // Atomically claim the token: find a valid unused token and mark it used in one operation
     const resetTokenDoc = await PasswordResetToken.findOneAndUpdate(

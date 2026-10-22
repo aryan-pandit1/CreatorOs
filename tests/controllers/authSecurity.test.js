@@ -23,6 +23,30 @@ describe('Bulletproof Auth & Security Tests (#597)', () => {
             expect(res.statusCode).toEqual(400);
         });
 
+        it('should reject a common password during signup without creating a user', async () => {
+            const res = await request(app)
+                .post('/signup')
+                .set('Cookie', [csrfCookie])
+                .set(csrfHeader)
+                .set('Accept', 'application/json')
+                .send({
+                    name: 'Common Password User',
+                    email: 'common-password@example.com',
+                    password: 'password',
+                });
+
+            expect(res.statusCode).toBe(400);
+            expect(res.body).toMatchObject({
+                success: false,
+                message: 'Password is too common. Please choose a different password.',
+            });
+
+            const user = await User.findOne({
+                email: 'common-password@example.com',
+            });
+            expect(user).toBeNull();
+        });
+
         it('should normalize email to lowercase and trim spaces on signup', async () => {
             const res = await request(app)
                 .post('/signup')
