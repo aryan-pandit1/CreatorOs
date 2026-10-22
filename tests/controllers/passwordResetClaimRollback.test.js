@@ -30,14 +30,24 @@ jest.mock('../../utils/loginAttemptManager', () => ({
 const { resetPassword } = require('../../controller/auth');
 
 describe('resetPassword claimed token rollback', () => {
+    const originalFetch = global.fetch;
+
     beforeEach(() => {
         jest.clearAllMocks();
+        global.fetch = jest.fn().mockResolvedValue({
+            ok: true,
+            text: async () => '',
+        });
         mockFindOneAndUpdate.mockResolvedValue({
             _id: 'reset-token-1',
             userId: 'missing-user',
         });
         mockFindById.mockResolvedValue(null);
         mockUpdateOne.mockResolvedValue({ modifiedCount: 1 });
+    });
+
+    afterAll(() => {
+        global.fetch = originalFetch;
     });
 
     test('releases a claimed reset token when the user cannot be found', async () => {

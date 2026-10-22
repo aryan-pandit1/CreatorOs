@@ -7,9 +7,18 @@ const User = require('../../model/user');
 describe('Bulletproof Auth & Security Tests (#597)', () => {
     const csrfCookie = '_csrf=testtoken';
     const csrfHeader = { 'x-csrf-token': 'testtoken' };
+    const originalFetch = global.fetch;
 
     beforeEach(async () => {
         await User.deleteMany({});
+        global.fetch = jest.fn().mockResolvedValue({
+            ok: true,
+            text: async () => '',
+        });
+    });
+
+    afterAll(() => {
+        global.fetch = originalFetch;
     });
 
     describe('Signup Security & Validation', () => {
@@ -62,6 +71,31 @@ describe('Bulletproof Auth & Security Tests (#597)', () => {
                 });
 
             expect(res.statusCode).toEqual(409);
+        });
+
+        it('should reject a compromised password before creating the user', async () => {
+            global.fetch.mockResolvedValue({
+                ok: true,
+                text: async () => '1E4C9B93F3F0682250B6CF8331B7EE68FD8:1',
+            });
+
+            const res = await request(app)
+                .post('/signup')
+                .set('Cookie', [csrfCookie])
+                .set(csrfHeader)
+                .set('Accept', 'application/json')
+                .send({
+                    name: 'Compromised Password User',
+                    email: 'compromised@example.com',
+                    password: 'password',
+                });
+
+            expect(res.statusCode).toBe(400);
+            expect(res.body).toEqual({
+                success: false,
+                message: 'This password has appeared in a data breach. Please choose a different password.',
+            });
+            expect(await User.findOne({ email: 'compromised@example.com' })).toBeNull();
         });
     });
 

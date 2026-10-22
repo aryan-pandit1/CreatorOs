@@ -16,6 +16,7 @@ describe("Password reset", () => {
   let req;
   let res;
   let next;
+  const originalFetch = global.fetch;
 
   beforeEach(() => {
     req = {
@@ -30,6 +31,14 @@ describe("Password reset", () => {
     };
     next = jest.fn();
     jest.clearAllMocks();
+    global.fetch = jest.fn().mockResolvedValue({
+      ok: true,
+      text: async () => "",
+    });
+  });
+
+  afterAll(() => {
+    global.fetch = originalFetch;
   });
 
   it("rejects short reset passwords without consuming the token", async () => {
@@ -71,5 +80,37 @@ describe("Password reset", () => {
       message: "Password reset successfully. Please log in with your new password.",
     });
     expect(next).not.toHaveBeenCalled();
+  });
+
+  it("rejects a compromised reset password without consuming the token", async () => {
+    global.fetch.mockResolvedValue({
+      ok: true,
+      text: async () => "1E4C9B93F3F0682250B6CF8331B7EE68FD8:1",
+    });
+    req.body.newPassword = "password";
+
+    await resetPassword(req, res, next);
+
+    expect(res.status).toHaveBeenCalledWith(400);
+    expect(res.json).toHaveBeenCalledWith({
+      success: false,
+      message: "This password has appeared in a data breach. Please choose a different password.",
+    });
+    expect(PasswordResetToken.findOneAndUpdate).not.toHaveBeenCalled();
+    expect(User.findById).not.toHaveBeenCalled();
+  });
+
+  it("returns a temporary error for an unavailable breach check without consuming the token", async () => {
+    global.fetch.mockRejectedValue(new Error("network unavailable"));
+
+    await resetPassword(req, res, next);
+
+    expect(res.status).toHaveBeenCalledWith(503);
+    expect(res.json).toHaveBeenCalledWith({
+      success: false,
+      message: "Password security check is temporarily unavailable. Please try again later.",
+    });
+    expect(PasswordResetToken.findOneAndUpdate).not.toHaveBeenCalled();
+    expect(User.findById).not.toHaveBeenCalled();
   });
 });

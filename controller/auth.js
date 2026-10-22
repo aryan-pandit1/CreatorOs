@@ -16,6 +16,10 @@ const {
 } = require("../utils/loginAttemptManager");
 const { isEmailTransportConfigured } = require("../utils/email");
 const { verifyTotp } = require("../utils/totp");
+const {
+    PasswordBreachCheckError,
+    isPasswordCompromised,
+} = require("../utils/passwordBreachChecker");
 
 const CONTRIBUTOR_NAME = "Contributor";
 const ONE_WEEK_MS = 7 * 24 * 60 * 60 * 1000;
@@ -29,6 +33,19 @@ const GENERIC_LOGIN_ERROR = "Invalid email or password";
 const INVALID_2FA_ERROR = "Invalid authenticator code";
 const GOOGLE_AUTH_CANCELLED_ERROR = "Google sign-in was cancelled or could not be completed.";
 const VERIFICATION_UNAVAILABLE_ERROR = "Email verification is temporarily unavailable because email delivery is not configured. Please try again later or contact support.";
+const COMPROMISED_PASSWORD_ERROR = "This password has appeared in a data breach. Please choose a different password.";
+const PASSWORD_CHECK_UNAVAILABLE_ERROR = "Password security check is temporarily unavailable. Please try again later.";
+
+async function validatePasswordSecurity(password) {
+    try {
+        return await isPasswordCompromised(password);
+    } catch (error) {
+        if (error instanceof PasswordBreachCheckError) {
+            return null;
+        }
+        throw error;
+    }
+}
 
 async function releaseClaimedResetToken(PasswordResetToken, resetTokenDoc) {
     if (!resetTokenDoc?._id) return;
@@ -279,6 +296,20 @@ const signup = asyncHandler(async (req, res, next) => {
             return res.status(409).render("signup", { error: "User already exists" });
         }
         return res.status(409).json({ success: false, message: "User already exists" });
+    }
+
+    const passwordCompromised = await validatePasswordSecurity(password);
+    if (passwordCompromised === null) {
+        if (wantsHtml(req)) {
+            return res.status(503).render("signup", { error: PASSWORD_CHECK_UNAVAILABLE_ERROR });
+        }
+        return res.status(503).json({ success: false, message: PASSWORD_CHECK_UNAVAILABLE_ERROR });
+    }
+    if (passwordCompromised) {
+        if (wantsHtml(req)) {
+            return res.status(400).render("signup", { error: COMPROMISED_PASSWORD_ERROR });
+        }
+        return res.status(400).json({ success: false, message: COMPROMISED_PASSWORD_ERROR });
     }
 
     const hashedPassword = await bcrypt.hash(password, 12);
@@ -887,6 +918,14 @@ const resetPassword = asyncHandler(async (req, res) => {
             success: false,
             message: `Password must be at least ${MIN_PASSWORD_LENGTH} characters`,
         });
+    }
+
+    const passwordCompromised = await validatePasswordSecurity(newPassword);
+    if (passwordCompromised === null) {
+        return res.status(503).json({ success: false, message: PASSWORD_CHECK_UNAVAILABLE_ERROR });
+    }
+    if (passwordCompromised) {
+        return res.status(400).json({ success: false, message: COMPROMISED_PASSWORD_ERROR });
     }
 
     // Atomically claim the token: find a valid unused token and mark it used in one operation
